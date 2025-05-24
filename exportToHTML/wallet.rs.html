@@ -1,0 +1,88 @@
+<html>
+<head>
+<title>wallet.rs</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #6a8759;}
+.s3 { color: #a9b7c6;}
+.s4 { color: #9876aa; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+wallet.rs</font>
+</center></td></tr></table>
+<pre><span class="s0">use </span><span class="s1">actix_web</span><span class="s0">::</span><span class="s1">{web, HttpResponse, Responder, get, post}; 
+</span><span class="s0">use </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s1">PgPool; 
+</span><span class="s0">use </span><span class="s1">uuid</span><span class="s0">::</span><span class="s1">Uuid; 
+</span><span class="s0">use crate::</span><span class="s1">models</span><span class="s0">::</span><span class="s1">{User, Wallet}; 
+</span><span class="s0">use crate::</span><span class="s1">middleware</span><span class="s0">::</span><span class="s1">AuthenticatedUser; 
+</span>
+<span class="s1">#[post(</span><span class="s2">&quot;/create_wallet&quot;</span><span class="s1">)]</span>
+<span class="s0">pub async fn </span><span class="s3">create_wallet</span><span class="s1">( 
+    user: AuthenticatedUser, 
+    pool: web::Data&lt;PgPool&gt;, 
+) -&gt; </span><span class="s0">impl </span><span class="s1">Responder { 
+    </span><span class="s0">let </span><span class="s1">email </span><span class="s0">= </span><span class="s1">user.</span><span class="s4">0</span><span class="s1">.sub; 
+</span>
+    <span class="s0">let </span><span class="s1">user </span><span class="s0">= match </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s3">query_as</span><span class="s0">::</span><span class="s1">&lt;_, User&gt;( 
+        </span><span class="s2">&quot;SELECT * FROM users WHERE email = $1&quot;</span>
+    <span class="s1">) 
+    .</span><span class="s3">bind</span><span class="s1">(</span><span class="s0">&amp;</span><span class="s1">email) 
+    .</span><span class="s3">fetch_one</span><span class="s1">(pool.</span><span class="s3">get_ref</span><span class="s1">()) 
+    .</span><span class="s0">await </span><span class="s1">{ 
+        Ok(u) </span><span class="s0">=&gt; </span><span class="s1">u, 
+        Err(_) </span><span class="s0">=&gt; return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">Unauthorized</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s2">&quot;Invalid user&quot;</span><span class="s1">), 
+    }; 
+</span>
+    <span class="s0">let </span><span class="s1">wallet_id </span><span class="s0">= </span><span class="s1">Uuid</span><span class="s0">::</span><span class="s3">new_v4</span><span class="s1">(); 
+    </span><span class="s0">let </span><span class="s1">result </span><span class="s0">= </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s3">query_as</span><span class="s0">::</span><span class="s1">&lt;_, Wallet&gt;( 
+        </span><span class="s2">&quot;INSERT INTO wallets (id, user_id, balance) 
+         VALUES ($1, $2, $3) 
+         RETURNING *&quot;</span>
+    <span class="s1">) 
+    .</span><span class="s3">bind</span><span class="s1">(wallet_id) 
+    .</span><span class="s3">bind</span><span class="s1">(user.id) 
+    .</span><span class="s3">bind</span><span class="s1">(</span><span class="s4">0.0f64</span><span class="s1">) 
+    .</span><span class="s3">fetch_one</span><span class="s1">(pool.</span><span class="s3">get_ref</span><span class="s1">()) 
+    .</span><span class="s0">await</span><span class="s1">; 
+</span>
+    <span class="s0">match </span><span class="s1">result { 
+        Ok(wallet) </span><span class="s0">=&gt; </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s1">Ok().</span><span class="s3">json</span><span class="s1">(wallet), 
+        Err(e) </span><span class="s0">=&gt; </span><span class="s1">{ 
+            eprintln!(</span><span class="s2">&quot;Wallet creation error: {:?}&quot;</span><span class="s1">, e); 
+            HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">finish</span><span class="s1">() 
+        } 
+    } 
+} 
+</span>
+<span class="s1">#[get(</span><span class="s2">&quot;/wallets&quot;</span><span class="s1">)]</span>
+<span class="s0">pub async fn </span><span class="s3">list_wallets</span><span class="s1">( 
+    user: AuthenticatedUser, 
+    pool: web::Data&lt;PgPool&gt;, 
+) -&gt; </span><span class="s0">impl </span><span class="s1">Responder { 
+    </span><span class="s0">let </span><span class="s1">email </span><span class="s0">= </span><span class="s1">user.</span><span class="s4">0</span><span class="s1">.sub; 
+</span>
+    <span class="s0">let </span><span class="s1">result </span><span class="s0">= </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s3">query_as</span><span class="s0">::</span><span class="s1">&lt;_, Wallet&gt;( 
+        </span><span class="s2">&quot;SELECT w.* FROM wallets w 
+         INNER JOIN users u ON w.user_id = u.id 
+         WHERE u.email = $1&quot;</span>
+    <span class="s1">) 
+    .</span><span class="s3">bind</span><span class="s1">(</span><span class="s0">&amp;</span><span class="s1">email) 
+    .</span><span class="s3">fetch_all</span><span class="s1">(pool.</span><span class="s3">get_ref</span><span class="s1">()) 
+    .</span><span class="s0">await</span><span class="s1">; 
+</span>
+    <span class="s0">match </span><span class="s1">result { 
+        Ok(wallets) </span><span class="s0">=&gt; </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s1">Ok().</span><span class="s3">json</span><span class="s1">(wallets), 
+        Err(e) </span><span class="s0">=&gt; </span><span class="s1">{ 
+            eprintln!(</span><span class="s2">&quot;Error listing wallets: {:?}&quot;</span><span class="s1">, e); 
+            HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">finish</span><span class="s1">() 
+        } 
+    } 
+}</span></pre>
+</body>
+</html>

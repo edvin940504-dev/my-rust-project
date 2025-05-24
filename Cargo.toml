@@ -1,0 +1,17 @@
+[package]
+name = "wallet_api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "4"
+serde_json = "1"
+uuid = { version = "1", features = ["serde", "v4"] }
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+lazy_static = "1"
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-native-tls", "macros", "uuid", "chrono"] }
+argon2 = "0.5"
+password-hash = "0.5.0"
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"   # or dotenv = "0.15"

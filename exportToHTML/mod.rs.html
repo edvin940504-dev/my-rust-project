@@ -1,0 +1,242 @@
+<html>
+<head>
+<title>mod.rs</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cc7832;}
+.s1 { color: #a9b7c6;}
+.s2 { color: #808080;}
+.s3 { color: #a9b7c6;}
+.s4 { color: #6a8759;}
+.s5 { color: #9876aa; font-style: italic;}
+</style>
+</head>
+<body bgcolor="#2b2b2b">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+mod.rs</font>
+</center></td></tr></table>
+<pre><span class="s0">use </span><span class="s1">actix_web</span><span class="s0">::</span><span class="s1">{get, post, web, HttpResponse, Responder}; 
+</span><span class="s0">use </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s1">{PgPool, PgConnection}; </span><span class="s2">// ← add PgConnection here</span>
+<span class="s0">use </span><span class="s1">uuid</span><span class="s0">::</span><span class="s1">Uuid; 
+</span><span class="s0">use </span><span class="s1">argon2</span><span class="s0">::</span><span class="s1">{Argon2, PasswordHash, PasswordHasher, PasswordVerifier}; 
+</span><span class="s0">use </span><span class="s1">argon2</span><span class="s0">::</span><span class="s1">password_hash</span><span class="s0">::</span><span class="s1">SaltString; 
+</span><span class="s0">use </span><span class="s1">rand_core</span><span class="s0">::</span><span class="s1">OsRng; 
+</span>
+<span class="s0">use crate::</span><span class="s1">models</span><span class="s0">::</span><span class="s1">{AuthPayload, User, Wallet}; 
+</span>
+<span class="s0">use crate::</span><span class="s1">models</span><span class="s0">::</span><span class="s1">TransactionPayload; 
+</span>
+<span class="s0">pub mod </span><span class="s1">auth; 
+</span><span class="s0">pub mod </span><span class="s1">wallet; 
+</span>
+<span class="s0">pub async fn </span><span class="s3">register_user</span><span class="s1">( 
+    payload: web::Json&lt;AuthPayload&gt;, 
+    pool: web::Data&lt;PgPool&gt;, 
+) -&gt; </span><span class="s0">impl </span><span class="s1">Responder { 
+    </span><span class="s0">let </span><span class="s1">id </span><span class="s0">= </span><span class="s1">Uuid</span><span class="s0">::</span><span class="s3">new_v4</span><span class="s1">(); 
+    </span><span class="s0">let </span><span class="s1">email </span><span class="s0">= &amp;</span><span class="s1">payload.email; 
+    </span><span class="s0">let </span><span class="s1">password </span><span class="s0">= &amp;</span><span class="s1">payload.password; 
+</span>
+    <span class="s0">let </span><span class="s1">salt </span><span class="s0">= </span><span class="s1">SaltString</span><span class="s0">::</span><span class="s3">generate</span><span class="s1">(</span><span class="s0">&amp;mut </span><span class="s1">OsRng); 
+    </span><span class="s0">let </span><span class="s1">argon2 </span><span class="s0">= </span><span class="s1">Argon2</span><span class="s0">::</span><span class="s3">default</span><span class="s1">(); 
+    </span><span class="s0">let </span><span class="s1">password_hash </span><span class="s0">= match </span><span class="s1">argon2.</span><span class="s3">hash_password</span><span class="s1">(password.</span><span class="s3">as_bytes</span><span class="s1">(), </span><span class="s0">&amp;</span><span class="s1">salt) { 
+        Ok(hash) </span><span class="s0">=&gt; </span><span class="s1">hash.</span><span class="s3">to_string</span><span class="s1">(), 
+        Err(_) </span><span class="s0">=&gt; return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Password hash failed&quot;</span><span class="s1">), 
+    }; 
+</span>
+    <span class="s0">let </span><span class="s1">username </span><span class="s0">= </span><span class="s1">email 
+        .</span><span class="s3">split</span><span class="s1">(</span><span class="s4">'@'</span><span class="s1">) 
+        .</span><span class="s3">next</span><span class="s1">() 
+        .</span><span class="s3">unwrap_or</span><span class="s1">(</span><span class="s4">&quot;user&quot;</span><span class="s1">) 
+        .</span><span class="s3">to_string</span><span class="s1">(); 
+</span>
+    <span class="s0">let </span><span class="s1">result </span><span class="s0">= </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s3">query_as</span><span class="s0">::</span><span class="s1">&lt;_, User&gt;( 
+        </span><span class="s4">&quot;INSERT INTO users (id, email, username, password_hash) 
+         VALUES ($1, $2, $3, $4) 
+         RETURNING *&quot;</span>
+    <span class="s1">) 
+    .</span><span class="s3">bind</span><span class="s1">(id) 
+    .</span><span class="s3">bind</span><span class="s1">(email) 
+    .</span><span class="s3">bind</span><span class="s1">(username) 
+    .</span><span class="s3">bind</span><span class="s1">(password_hash) 
+    .</span><span class="s3">fetch_one</span><span class="s1">(pool.</span><span class="s3">get_ref</span><span class="s1">()) 
+    .</span><span class="s0">await</span><span class="s1">; 
+</span>
+    <span class="s0">match </span><span class="s1">result { 
+        Ok(user) </span><span class="s0">=&gt; </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s1">Ok().</span><span class="s3">json</span><span class="s1">(user), 
+        Err(e) </span><span class="s0">=&gt; </span><span class="s1">{ 
+            eprintln!(</span><span class="s4">&quot;Register error: {:?}&quot;</span><span class="s1">, e); 
+            HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">finish</span><span class="s1">() 
+        } 
+    } 
+} 
+</span>
+<span class="s0">pub async fn </span><span class="s3">login_user</span><span class="s1">( 
+    payload: web::Json&lt;AuthPayload&gt;, 
+    pool: web::Data&lt;PgPool&gt;, 
+) -&gt; </span><span class="s0">impl </span><span class="s1">Responder { 
+    </span><span class="s0">let </span><span class="s1">email </span><span class="s0">= &amp;</span><span class="s1">payload.email; 
+    </span><span class="s0">let </span><span class="s1">password </span><span class="s0">= &amp;</span><span class="s1">payload.password; 
+</span>
+    <span class="s0">let </span><span class="s1">result </span><span class="s0">= </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s3">query_as</span><span class="s0">::</span><span class="s1">&lt;_, User&gt;( 
+        </span><span class="s4">&quot;SELECT * FROM users WHERE email = $1&quot;</span>
+    <span class="s1">) 
+    .</span><span class="s3">bind</span><span class="s1">(email) 
+    .</span><span class="s3">fetch_one</span><span class="s1">(pool.</span><span class="s3">get_ref</span><span class="s1">()) 
+    .</span><span class="s0">await</span><span class="s1">; 
+</span>
+    <span class="s0">let </span><span class="s1">user </span><span class="s0">= match </span><span class="s1">result { 
+        Ok(u) </span><span class="s0">=&gt; </span><span class="s1">u, 
+        Err(_) </span><span class="s0">=&gt; return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">Unauthorized</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Invalid credentials&quot;</span><span class="s1">), 
+    }; 
+</span>
+    <span class="s0">let </span><span class="s1">parsed_hash </span><span class="s0">= match </span><span class="s1">PasswordHash</span><span class="s0">::</span><span class="s3">new</span><span class="s1">(</span><span class="s0">&amp;</span><span class="s1">user.password_hash) { 
+        Ok(hash) </span><span class="s0">=&gt; </span><span class="s1">hash, 
+        Err(_) </span><span class="s0">=&gt; return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">Unauthorized</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Invalid credentials&quot;</span><span class="s1">), 
+    }; 
+</span>
+    <span class="s0">let </span><span class="s1">argon2 </span><span class="s0">= </span><span class="s1">Argon2</span><span class="s0">::</span><span class="s3">default</span><span class="s1">(); 
+    </span><span class="s0">if </span><span class="s1">argon2.</span><span class="s3">verify_password</span><span class="s1">(password.</span><span class="s3">as_bytes</span><span class="s1">(), </span><span class="s0">&amp;</span><span class="s1">parsed_hash).</span><span class="s3">is_err</span><span class="s1">() { 
+        </span><span class="s0">return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">Unauthorized</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Invalid credentials&quot;</span><span class="s1">); 
+    } 
+</span>
+    <span class="s0">match crate::</span><span class="s1">auth</span><span class="s0">::</span><span class="s3">generate_token</span><span class="s1">(</span><span class="s0">&amp;</span><span class="s1">user.email) { 
+    Ok(token) </span><span class="s0">=&gt; </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s1">Ok().</span><span class="s3">json</span><span class="s1">(serde_json</span><span class="s0">::</span><span class="s3">json!</span><span class="s1">({ </span><span class="s4">&quot;token&quot;</span><span class="s1">: token })), 
+    Err(_) </span><span class="s0">=&gt; </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Token generation failed&quot;</span><span class="s1">), 
+    } 
+} 
+</span>
+<span class="s0">pub async fn </span><span class="s3">create_wallet</span><span class="s1">( 
+    payload: web::Json&lt;AuthPayload&gt;, 
+    pool: web::Data&lt;PgPool&gt;, 
+) -&gt; </span><span class="s0">impl </span><span class="s1">Responder { 
+    </span><span class="s0">let </span><span class="s1">email </span><span class="s0">= &amp;</span><span class="s1">payload.email; 
+    </span><span class="s0">let </span><span class="s1">password </span><span class="s0">= &amp;</span><span class="s1">payload.password; 
+</span>
+    <span class="s0">let </span><span class="s1">user </span><span class="s0">= match </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s3">query_as</span><span class="s0">::</span><span class="s1">&lt;_, User&gt;( 
+        </span><span class="s4">&quot;SELECT * FROM users WHERE email = $1&quot;</span>
+    <span class="s1">) 
+    .</span><span class="s3">bind</span><span class="s1">(email) 
+    .</span><span class="s3">fetch_one</span><span class="s1">(pool.</span><span class="s3">get_ref</span><span class="s1">()) 
+    .</span><span class="s0">await </span><span class="s1">{ 
+        Ok(u) </span><span class="s0">=&gt; </span><span class="s1">u, 
+        Err(_) </span><span class="s0">=&gt; return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">Unauthorized</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Invalid credentials&quot;</span><span class="s1">), 
+    }; 
+</span>
+    <span class="s0">let </span><span class="s1">parsed_hash </span><span class="s0">= match </span><span class="s1">PasswordHash</span><span class="s0">::</span><span class="s3">new</span><span class="s1">(</span><span class="s0">&amp;</span><span class="s1">user.password_hash) { 
+        Ok(hash) </span><span class="s0">=&gt; </span><span class="s1">hash, 
+        Err(_) </span><span class="s0">=&gt; return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">Unauthorized</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Invalid credentials&quot;</span><span class="s1">), 
+    }; 
+</span>
+    <span class="s0">let </span><span class="s1">argon2 </span><span class="s0">= </span><span class="s1">Argon2</span><span class="s0">::</span><span class="s3">default</span><span class="s1">(); 
+    </span><span class="s0">if </span><span class="s1">argon2.</span><span class="s3">verify_password</span><span class="s1">(password.</span><span class="s3">as_bytes</span><span class="s1">(), </span><span class="s0">&amp;</span><span class="s1">parsed_hash).</span><span class="s3">is_err</span><span class="s1">() { 
+        </span><span class="s0">return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">Unauthorized</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Invalid credentials&quot;</span><span class="s1">); 
+    } 
+</span>
+    <span class="s0">let </span><span class="s1">wallet_id </span><span class="s0">= </span><span class="s1">Uuid</span><span class="s0">::</span><span class="s3">new_v4</span><span class="s1">(); 
+    </span><span class="s0">let </span><span class="s1">result </span><span class="s0">= </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s3">query_as</span><span class="s0">::</span><span class="s1">&lt;_, Wallet&gt;( 
+        </span><span class="s4">&quot;INSERT INTO wallets (id, user_id, balance) 
+         VALUES ($1, $2, $3) 
+         RETURNING *&quot;</span>
+    <span class="s1">) 
+    .</span><span class="s3">bind</span><span class="s1">(wallet_id) 
+    .</span><span class="s3">bind</span><span class="s1">(user.id) 
+    .</span><span class="s3">bind</span><span class="s1">(</span><span class="s5">0.0f64</span><span class="s1">) 
+    .</span><span class="s3">fetch_one</span><span class="s1">(pool.</span><span class="s3">get_ref</span><span class="s1">()) 
+    .</span><span class="s0">await</span><span class="s1">; 
+</span>
+    <span class="s0">match </span><span class="s1">result { 
+        Ok(wallet) </span><span class="s0">=&gt; </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s1">Ok().</span><span class="s3">json</span><span class="s1">(wallet), 
+        Err(e) </span><span class="s0">=&gt; </span><span class="s1">{ 
+            eprintln!(</span><span class="s4">&quot;Wallet creation error: {:?}&quot;</span><span class="s1">, e); 
+            HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">finish</span><span class="s1">() 
+        } 
+    } 
+} 
+</span>
+<span class="s0">pub async fn </span><span class="s3">handle_transaction</span><span class="s1">( 
+    payload: web::Json&lt;TransactionPayload&gt;, 
+    pool: web::Data&lt;PgPool&gt;, 
+) -&gt; </span><span class="s0">impl </span><span class="s1">Responder { 
+    </span><span class="s0">let </span><span class="s1">sender_user_id </span><span class="s0">= </span><span class="s1">payload.sender_user_id; 
+    </span><span class="s0">let </span><span class="s1">receiver_user_id </span><span class="s0">= </span><span class="s1">payload.receiver_user_id; 
+    </span><span class="s0">let </span><span class="s1">amount </span><span class="s0">= </span><span class="s1">payload.amount; 
+</span>
+    <span class="s1">eprintln!(</span><span class="s4">&quot;🔄 Transaction: sender_user_id = {}, receiver_user_id = {}, amount = {}&quot;</span><span class="s1">, sender_user_id, receiver_user_id, amount); 
+</span>
+    <span class="s0">if </span><span class="s1">amount </span><span class="s0">&lt;= </span><span class="s5">0.0 </span><span class="s1">{ 
+        </span><span class="s0">return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">BadRequest</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Amount must be positive&quot;</span><span class="s1">); 
+    } 
+</span>
+    <span class="s2">// Auto-map user → wallet</span>
+    <span class="s0">let mut </span><span class="s1">tx </span><span class="s0">= match </span><span class="s1">pool.</span><span class="s3">begin</span><span class="s1">().</span><span class="s0">await </span><span class="s1">{ 
+        Ok(t) </span><span class="s0">=&gt; </span><span class="s1">t, 
+        Err(e) </span><span class="s0">=&gt; </span><span class="s1">{ 
+            eprintln!(</span><span class="s4">&quot;❌ Failed to start DB transaction: {:?}&quot;</span><span class="s1">, e); 
+            </span><span class="s0">return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Transaction begin failed&quot;</span><span class="s1">); 
+        } 
+    }; 
+</span>
+    <span class="s0">let </span><span class="s1">sender_wallet </span><span class="s0">= match </span><span class="s3">get_wallet_by_user_id</span><span class="s1">(sender_user_id, </span><span class="s0">&amp;mut *</span><span class="s1">tx).</span><span class="s0">await </span><span class="s1">{ 
+        Ok(wallet) </span><span class="s0">=&gt; </span><span class="s1">wallet, 
+        Err(resp) </span><span class="s0">=&gt; return </span><span class="s1">resp, 
+    }; 
+</span>
+    <span class="s0">let </span><span class="s1">receiver_wallet </span><span class="s0">= match </span><span class="s3">get_wallet_by_user_id</span><span class="s1">(receiver_user_id, </span><span class="s0">&amp;mut *</span><span class="s1">tx).</span><span class="s0">await </span><span class="s1">{ 
+        Ok(wallet) </span><span class="s0">=&gt; </span><span class="s1">wallet, 
+        Err(resp) </span><span class="s0">=&gt; return </span><span class="s1">resp, 
+    }; 
+</span>
+    <span class="s0">if </span><span class="s1">sender_wallet.balance </span><span class="s0">&lt; </span><span class="s1">amount { 
+        </span><span class="s0">return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">BadRequest</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Insufficient balance&quot;</span><span class="s1">); 
+    } 
+</span>
+    <span class="s2">// Perform transaction</span>
+    <span class="s0">if let </span><span class="s1">Err(e) </span><span class="s0">= </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s3">query</span><span class="s1">(</span><span class="s4">&quot;UPDATE wallets SET balance = balance - $1 WHERE id = $2&quot;</span><span class="s1">) 
+        .</span><span class="s3">bind</span><span class="s1">(amount) 
+        .</span><span class="s3">bind</span><span class="s1">(sender_wallet.id) 
+        .</span><span class="s3">execute</span><span class="s1">(</span><span class="s0">&amp;mut *</span><span class="s1">tx) 
+        .</span><span class="s0">await </span><span class="s1">{ 
+        </span><span class="s0">return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Failed to deduct from sender&quot;</span><span class="s1">); 
+    } 
+</span>
+    <span class="s0">if let </span><span class="s1">Err(e) </span><span class="s0">= </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s3">query</span><span class="s1">(</span><span class="s4">&quot;UPDATE wallets SET balance = balance + $1 WHERE id = $2&quot;</span><span class="s1">) 
+        .</span><span class="s3">bind</span><span class="s1">(amount) 
+        .</span><span class="s3">bind</span><span class="s1">(receiver_wallet.id) 
+        .</span><span class="s3">execute</span><span class="s1">(</span><span class="s0">&amp;mut *</span><span class="s1">tx) 
+        .</span><span class="s0">await </span><span class="s1">{ 
+        </span><span class="s0">return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Failed to credit receiver&quot;</span><span class="s1">); 
+    } 
+</span>
+    <span class="s0">if let </span><span class="s1">Err(e) </span><span class="s0">= </span><span class="s1">tx.</span><span class="s3">commit</span><span class="s1">().</span><span class="s0">await </span><span class="s1">{ 
+        </span><span class="s0">return </span><span class="s1">HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Transaction commit failed&quot;</span><span class="s1">); 
+    } 
+</span>
+    <span class="s1">HttpResponse</span><span class="s0">::</span><span class="s1">Ok().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Transaction successful&quot;</span><span class="s1">) 
+} 
+</span>
+<span class="s0">async fn </span><span class="s3">get_wallet_by_user_id</span><span class="s1">&lt;</span><span class="s0">'a</span><span class="s1">&gt;( 
+    user_id: Uuid, 
+    conn: </span><span class="s0">&amp;mut </span><span class="s1">PgConnection, 
+) -&gt; </span><span class="s0">Result</span><span class="s1">&lt;Wallet, HttpResponse&gt; { 
+    </span><span class="s0">match </span><span class="s1">sqlx</span><span class="s0">::</span><span class="s3">query_as</span><span class="s0">::</span><span class="s1">&lt;_, Wallet&gt;( 
+        </span><span class="s4">&quot;SELECT * FROM wallets WHERE user_id = $1&quot;</span>
+    <span class="s1">) 
+    .</span><span class="s3">bind</span><span class="s1">(user_id) 
+    .</span><span class="s3">fetch_optional</span><span class="s1">(conn) 
+    .</span><span class="s0">await </span><span class="s1">{ 
+        Ok(Some(wallet)) </span><span class="s0">=&gt; </span><span class="s1">Ok(wallet), 
+        Ok(None) </span><span class="s0">=&gt; </span><span class="s1">{ 
+            eprintln!(</span><span class="s4">&quot;❌ Wallet not found for user ID: {}&quot;</span><span class="s1">, user_id); 
+            Err(HttpResponse</span><span class="s0">::</span><span class="s3">NotFound</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(format!(</span><span class="s4">&quot;Wallet not found for user {}&quot;</span><span class="s1">, user_id))) 
+        }, 
+        Err(e) </span><span class="s0">=&gt; </span><span class="s1">{ 
+            eprintln!(</span><span class="s4">&quot;❌ DB error fetching wallet for user {}: {:?}&quot;</span><span class="s1">, user_id, e); 
+            Err(HttpResponse</span><span class="s0">::</span><span class="s3">InternalServerError</span><span class="s1">().</span><span class="s3">body</span><span class="s1">(</span><span class="s4">&quot;Failed to fetch wallet&quot;</span><span class="s1">)) 
+        } 
+    } 
+}</span></pre>
+</body>
+</html>
