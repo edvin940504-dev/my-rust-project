@@ -1,1 +1,29 @@
-/target
+# Rust build files
+/target/
+**/*.rs.bk
+
+# Environment variables
+.env
+
+# IDE (PyCharm, VSCode, etc.)
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Cargo specific
+Cargo.lock
+
+# Backup files
+*.swp
+*.swo
+*~
+
+# Coverage or test outputs
+coverage/
+
